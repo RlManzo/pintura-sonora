@@ -94,7 +94,13 @@ btnStart.addEventListener("click", async () => {
     resizeOverlayToVideo();
 
     setStatus("Cámara OK · Cargando OpenCV…");
-    cv = await loadOpenCV();
+    try {
+  cv = await loadOpenCV();
+    } catch (err) {
+      console.error(err);
+      setStatus(`Error OpenCV: ${(err as any)?.message ?? "desconocido"}`);
+      throw err;
+    }
 
     setStatus("OpenCV OK · Preparando referencia…");
     autolock = new AutoLock({ cv, referenceUrl: OBRA_BOSS.referenceImage });
