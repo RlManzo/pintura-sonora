@@ -25,7 +25,7 @@ export type PaintingPack = {
 export const OBRA_BOSS: PaintingPack = {
   id: "obra_boss",
   title: "El Boss Supremo",
-  referenceImage: "/src/assets/paintings/obra_boss/ref.jpg",
+  referenceImage: "/src/public/paintings/obra_boss/ref.jpg",
   zones: [
     // 🟥 PAREDES – PAD
     { id: "wall_l", x: 0.18, y: 0.45, r: 0.18, role: "pad" },
