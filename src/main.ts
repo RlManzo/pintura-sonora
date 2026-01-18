@@ -116,7 +116,7 @@ btnStart.addEventListener("click", async () => {
     await new Promise((r) => setTimeout(r, 900));
 
     setStatus("Cargando OpenCV… (iPhone puede tardar 30–90s)");
-    cv = await loadOpenCV(90000);
+    cv = await loadOpenCV(60000);
     setStatus("OpenCV OK");
 
     setStatus("Preparando referencia…");
