@@ -9,6 +9,12 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       includeAssets: ["favicon.svg", "robots.txt"],
+      workbox: {
+    globIgnores: [
+      "vendor/opencv.js",
+      "vendor/opencv_js.wasm",
+    ],
+  },
       manifest: {
         name: "Pintura Sonora",
         short_name: "PinturaSonora",
