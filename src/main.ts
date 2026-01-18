@@ -169,11 +169,12 @@ btnResetCalib.addEventListener("click", () => {
   setStatus("Calibración reseteada");
 });
 
-// Tap sobre overlay (en coords normalizadas del overlay)
-overlayEl.addEventListener("pointerdown", (e) => {
+const stageEl = document.querySelector<HTMLDivElement>(".stage")!;
+
+stageEl.addEventListener("pointerdown", (e) => {
   if (!calibActive) return;
 
-  const rect = overlayEl.getBoundingClientRect();
+  const rect = videoEl.getBoundingClientRect();
   const x = (e.clientX - rect.left) / rect.width;
   const y = (e.clientY - rect.top) / rect.height;
 

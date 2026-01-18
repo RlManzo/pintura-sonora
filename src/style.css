@@ -50,20 +50,23 @@ html, body {
 
 .stage {
   position: relative;
-  border-radius: 16px;
+  width: 100%;
+  aspect-ratio: 3 / 4; /* o el que uses */
   overflow: hidden;
-  border: 1px solid var(--border);
-  background: #000;
-  aspect-ratio: 3 / 4;
+  border-radius: 16px;
 }
 
-video, canvas {
+.stage video,
+.stage canvas,
+.stage img.refimg {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: cover; /* clave: los 3 iguales */
 }
+
+
 
 .reticle {
   position: absolute;
@@ -117,13 +120,3 @@ button.primary {
   color: var(--muted);
 }
 
-
-.refimg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover; /* igual que el video */
-  pointer-events: none;
-  mix-blend-mode: normal;
-}
