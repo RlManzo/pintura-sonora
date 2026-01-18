@@ -9,7 +9,8 @@ const PENT_MINOR = [0, 3, 5, 7, 10];
 
 function pickFromScale(rootMidi: number, step: number) {
   const oct = Math.floor(step / PENT_MINOR.length);
-  const deg = PENT_MINOR[((step % PENT_MINOR.length) + PENT_MINOR.length) % PENT_MINOR.length];
+  const deg =
+    PENT_MINOR[((step % PENT_MINOR.length) + PENT_MINOR.length) % PENT_MINOR.length];
   return rootMidi + deg + oct * 12;
 }
 
@@ -19,13 +20,27 @@ export class AudioEngine {
   private comp!: DynamicsCompressorNode;
   private reverb!: ConvolverNode;
 
-  
-
   async init() {
-    if (this.ctx) return;
+    if (this.ctx) {
+      // si ya existe, igual intentamos resumir por si quedó suspended
+      if (this.ctx.state !== "running") await this.ctx.resume();
+      return;
+    }
 
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
     this.ctx = new AudioCtx();
+
+    // iOS: asegurar running primero
+    if (this.ctx.state !== "running") {
+      await this.ctx.resume();
+    }
+
+    // iOS unlock: reproducir un buffer ínfimo para “desbloquear” audio (DESPUÉS de resume)
+    const b = this.ctx.createBuffer(1, 1, this.ctx.sampleRate);
+    const s = this.ctx.createBufferSource();
+    s.buffer = b;
+    s.connect(this.ctx.destination);
+    s.start(0);
 
     // cadena master
     this.master = this.ctx.createGain();
@@ -53,18 +68,14 @@ export class AudioEngine {
     this.reverb.connect(this.comp);
 
     // guardamos el send en el master para usarlo desde instrumentos
-    // (lo attachamos como propiedad no tipada)
     (this.master as any)._revSend = revSend;
-
-    
-
-    // iOS: asegurar running
-    if (this.ctx.state !== "running") {
-      await this.ctx.resume();
-    }
   }
 
-  // --- API de pruebas (después lo reemplazamos por zonas) ---
+  getState() {
+    return this.ctx ? this.ctx.state : "none";
+  }
+
+  // --- API de pruebas ---
   playPad() {
     this.ensure();
     const now = this.ctx!.currentTime;
@@ -92,10 +103,9 @@ export class AudioEngine {
   // --- instrumentos ---
   private pad(n: Note, t0: number) {
     const ctx = this.ctx!;
-    const out = this.ctx!.createGain();
+    const out = ctx.createGain();
     out.gain.value = 0;
 
-    // osciladores
     const o1 = ctx.createOscillator();
     o1.type = "sawtooth";
     o1.frequency.value = n.freq;
@@ -104,20 +114,21 @@ export class AudioEngine {
     o2.type = "triangle";
     o2.frequency.value = n.freq * 0.5;
 
-    // filtro
     const f = ctx.createBiquadFilter();
     f.type = "lowpass";
     f.frequency.value = 900;
     f.Q.value = 0.6;
 
-    // envelope
-    const a = 0.02, d = 0.35, s = 0.55, r = 0.55;
+    const a = 0.02,
+      d = 0.35,
+      s = 0.55,
+      r = 0.55;
+
     out.gain.setValueAtTime(0.0001, t0);
     out.gain.exponentialRampToValueAtTime(Math.max(0.0002, n.vel), t0 + a);
     out.gain.exponentialRampToValueAtTime(Math.max(0.0002, n.vel * s), t0 + a + d);
     out.gain.exponentialRampToValueAtTime(0.0001, t0 + n.dur + r);
 
-    // routing
     o1.connect(f);
     o2.connect(f);
     f.connect(out);
@@ -136,7 +147,6 @@ export class AudioEngine {
     const out = ctx.createGain();
     out.gain.value = 0;
 
-    // “e-piano” simple: sine + un poco de FM
     const carrier = ctx.createOscillator();
     carrier.type = "sine";
     carrier.frequency.value = n.freq;
@@ -151,14 +161,16 @@ export class AudioEngine {
     mod.connect(modGain);
     modGain.connect((carrier as any).frequency);
 
-    // filtro suave
     const f = ctx.createBiquadFilter();
     f.type = "lowpass";
     f.frequency.value = 2200;
     f.Q.value = 0.7;
 
-    // envelope rápido
-    const a = 0.005, d = 0.09, s = 0.18, r = 0.12;
+    const a = 0.005,
+      d = 0.09,
+      s = 0.18,
+      r = 0.12;
+
     out.gain.setValueAtTime(0.0001, t0);
     out.gain.exponentialRampToValueAtTime(Math.max(0.0002, n.vel), t0 + a);
     out.gain.exponentialRampToValueAtTime(Math.max(0.0002, n.vel * s), t0 + a + d);
@@ -181,7 +193,6 @@ export class AudioEngine {
     const out = ctx.createGain();
     out.gain.value = 0;
 
-    // ruido corto
     const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.06), ctx.sampleRate);
     const data = buf.getChannelData(0);
     for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * 0.6;
@@ -193,7 +204,9 @@ export class AudioEngine {
     f.type = "highpass";
     f.frequency.value = 1200;
 
-    const a = 0.001, r = 0.05;
+    const a = 0.001,
+      r = 0.05;
+
     out.gain.setValueAtTime(0.0001, t0);
     out.gain.exponentialRampToValueAtTime(Math.max(0.0002, level), t0 + a);
     out.gain.exponentialRampToValueAtTime(0.0001, t0 + r);
@@ -206,7 +219,6 @@ export class AudioEngine {
     src.stop(t0 + 0.07);
   }
 
-  // impulse response simple para reverb
   private makeImpulseResponse(ctx: AudioContext, seconds: number, decay: number) {
     const rate = ctx.sampleRate;
     const length = Math.floor(rate * seconds);
@@ -223,6 +235,8 @@ export class AudioEngine {
   }
 
   private ensure() {
-    if (!this.ctx) throw new Error("AudioEngine no inicializado. Llamá init() con gesto de usuario.");
+    if (!this.ctx) {
+      throw new Error("AudioEngine no inicializado. Llamá init() con gesto de usuario.");
+    }
   }
 }
