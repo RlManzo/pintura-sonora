@@ -1,6 +1,8 @@
 import "./style.css";
 import { CameraController } from "./vision/camera";
 import { AudioEngine } from "./audio/engine";
+import { OBRA_BOSS } from "./mapping/painting-pack";
+import { findZone } from "./mapping/zones";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 
@@ -48,13 +50,40 @@ function setStatus(s: string) {
 }
 
 function resizeOverlayToVideo() {
-  // Ajusta el canvas overlay al tamaño real del video en pantalla
   const rect = videoEl.getBoundingClientRect();
   overlayEl.width = Math.max(1, Math.floor(rect.width * devicePixelRatio));
   overlayEl.height = Math.max(1, Math.floor(rect.height * devicePixelRatio));
 }
 
 window.addEventListener("resize", () => resizeOverlayToVideo(), { passive: true });
+
+// Cursor (debug/calibración) en coordenadas normalizadas 0..1
+let cursorX = 0.5;
+let cursorY = 0.5;
+let lastZoneId: string | null = null;
+
+// mover cursor con touch sobre el overlay
+overlayEl.addEventListener(
+  "touchstart",
+  (e) => {
+    const rect = overlayEl.getBoundingClientRect();
+    const t = e.touches[0];
+    cursorX = (t.clientX - rect.left) / rect.width;
+    cursorY = (t.clientY - rect.top) / rect.height;
+  },
+  { passive: true }
+);
+
+overlayEl.addEventListener(
+  "touchmove",
+  (e) => {
+    const rect = overlayEl.getBoundingClientRect();
+    const t = e.touches[0];
+    cursorX = (t.clientX - rect.left) / rect.width;
+    cursorY = (t.clientY - rect.top) / rect.height;
+  },
+  { passive: true }
+);
 
 const btnStart = document.querySelector<HTMLButtonElement>("#btnStart")!;
 btnStart.addEventListener("click", async () => {
@@ -77,7 +106,7 @@ btnStart.addEventListener("click", async () => {
   }
 });
 
-// Botones de test (para validar audio antes de visión)
+// Botones de test (para validar audio)
 document.querySelector<HTMLButtonElement>("#btnA")!.addEventListener("click", () => {
   audio.playPad();
 });
@@ -90,11 +119,12 @@ document.querySelector<HTMLButtonElement>("#btnC")!.addEventListener("click", ()
 
 function drawLoop() {
   const ctx = overlayEl.getContext("2d")!;
+  const rect = videoEl.getBoundingClientRect();
 
   // limpiar
   ctx.clearRect(0, 0, overlayEl.width, overlayEl.height);
 
-  // debug: pinta un texto sutil
+  // debug: texto
   ctx.save();
   ctx.scale(devicePixelRatio, devicePixelRatio);
   ctx.font = "12px system-ui";
@@ -102,6 +132,66 @@ function drawLoop() {
   ctx.fillText("overlay activo", 12, 18);
   ctx.restore();
 
-  // seguimos
+  // dibujar zonas + cursor en coordenadas de pantalla
+  ctx.save();
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+
+  for (const z of OBRA_BOSS.zones) {
+    const cx = z.x * rect.width;
+    const cy = z.y * rect.height;
+    const rr = z.r * rect.width;
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(255,255,255,0.22)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  // cursor
+  ctx.beginPath();
+  ctx.arc(cursorX * rect.width, cursorY * rect.height, 6, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(255,255,255,0.75)";
+  ctx.fill();
+
+  ctx.restore();
+
+  // resolver zona
+  const zone = findZone(OBRA_BOSS.zones, cursorX, cursorY);
+
+  if (zone && zone.id !== lastZoneId) {
+    lastZoneId = zone.id;
+
+    switch (zone.role) {
+      case "pad":
+        audio.playPad();
+        break;
+
+      case "epiano":
+      case "pattern-melody":
+        audio.playEPiano();
+        break;
+
+      case "perc":
+      case "pattern-rhythm":
+        audio.playClick();
+        break;
+
+      case "accent":
+        audio.playClick();
+        audio.playEPiano();
+        break;
+
+      case "macro":
+        // por ahora: feedback suave (después será mutación/control)
+        audio.playPad();
+        break;
+    }
+  }
+
+  if (!zone) {
+    lastZoneId = null; // permite re-disparar al volver a entrar
+  }
+
   requestAnimationFrame(drawLoop);
 }
