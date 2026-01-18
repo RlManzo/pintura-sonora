@@ -71,7 +71,8 @@ async function checkVendorFiles() {
   for (const u of urls) {
     try {
       const r = await fetch(u, { cache: "no-store" });
-      results.push(`${u}: ${r.status}`);
+      const ct = r.headers.get("content-type") ?? "-";
+      results.push(`${u}: ${r.status} (${ct})`);
     } catch {
       results.push(`${u}: FETCH_ERROR`);
     }
