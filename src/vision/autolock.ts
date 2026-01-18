@@ -30,7 +30,7 @@ function applyHomographyToPoint(H: number[], x: number, y: number) {
   return { x: (a * x + b * y + c) / w, y: (d * x + e * y + f) / w };
 }
 
-function mat3x3ToArray(cv: any, Hmat: any): number[] {
+function mat3x3ToArray(Hmat: any): number[] {
   // Hmat es cv.Mat 3x3 CV_64F o CV_32F
   const out: number[] = new Array(9);
   for (let r = 0; r < 3; r++) {
@@ -138,7 +138,7 @@ export class AutoLock {
     if (now - this.lastRunMs < this.intervalMs) {
       if (stillLocked) {
         // proyectar centro con última H
-        return this.projectCenter(stillLocked, videoEl);
+        return this.projectCenter(stillLocked);
       }
       return { locked: false, paintX: 0, paintY: 0, inliers: 0, goodMatches: 0 };
     }
@@ -254,7 +254,7 @@ export class AutoLock {
     cv.invert(H_ref_to_frame, H_frame_to_ref);
     H_ref_to_frame.delete();
 
-    const H = mat3x3ToArray(cv, H_frame_to_ref);
+    const H = mat3x3ToArray(H_frame_to_ref);
     H_frame_to_ref.delete();
 
     // Guardar lock
@@ -272,7 +272,7 @@ export class AutoLock {
     return { locked: true, paintX, paintY, inliers, goodMatches };
   }
 
-  private projectCenter(locked: boolean, videoEl: HTMLVideoElement): LockResult {
+  private projectCenter(locked: boolean): LockResult {
     if (!locked || !this.ref || !this.lastH_frame_to_ref) {
       return { locked: false, paintX: 0, paintY: 0, inliers: 0, goodMatches: 0 };
     }
