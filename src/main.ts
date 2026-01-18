@@ -1,3 +1,4 @@
+// src/main.ts
 import "./style.css";
 import { CameraController } from "./vision/camera";
 import { AudioEngine } from "./audio/engine";
@@ -5,6 +6,13 @@ import { OBRA_BOSS } from "./mapping/painting-pack";
 import { findZone } from "./mapping/zones";
 import { loadOpenCV } from "./vision/opencv-loader";
 import { AutoLock } from "./vision/autolock";
+
+// ✅ DEBUG: desregistrar SW para evitar caches viejos (temporal)
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    regs.forEach((r) => r.unregister());
+  });
+}
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 
@@ -56,6 +64,21 @@ async function unlockAudioIfNeeded() {
   audioUnlocked = true;
 }
 
+// ✅ DEBUG: chequear que opencv.js/wasm estén accesibles desde el iPhone
+async function checkVendorFiles() {
+  const urls = ["/vendor/opencv.js", "/vendor/opencv_js.wasm"];
+  const results: string[] = [];
+  for (const u of urls) {
+    try {
+      const r = await fetch(u, { cache: "no-store" });
+      results.push(`${u}: ${r.status}`);
+    } catch {
+      results.push(`${u}: FETCH_ERROR`);
+    }
+  }
+  return results.join(" | ");
+}
+
 function setStatus(s: string) {
   statusEl.textContent = s;
 }
@@ -93,9 +116,16 @@ btnStart.addEventListener("click", async () => {
 
     resizeOverlayToVideo();
 
-    setStatus("Cámara OK · Cargando OpenCV…");
+    // ✅ Mostrar si realmente se ven los assets vendor en el iPhone
+    setStatus("Cámara OK · chequeando vendor…");
+    const chk = await checkVendorFiles();
+    setStatus(chk);
+    await new Promise((r) => setTimeout(r, 1000));
+
+    setStatus("Cargando OpenCV…");
     try {
-  cv = await loadOpenCV();
+      cv = await loadOpenCV(15000);
+      setStatus("OpenCV OK");
     } catch (err) {
       console.error(err);
       setStatus(`Error OpenCV: ${(err as any)?.message ?? "desconocido"}`);
@@ -104,8 +134,8 @@ btnStart.addEventListener("click", async () => {
 
     setStatus("OpenCV OK · Preparando referencia…");
     autolock = new AutoLock({ cv, referenceUrl: OBRA_BOSS.referenceImage });
-    autolock.setAnalysisSize(320);     // performance iPhone
-    autolock.setVisionRate(200);       // 5fps visión
+    autolock.setAnalysisSize(320); // performance iPhone
+    autolock.setVisionRate(200); // 5fps visión
     await autolock.init();
 
     setStatus("Listo · Buscando obra…");

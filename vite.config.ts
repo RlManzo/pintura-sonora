@@ -10,11 +10,15 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["favicon.svg", "robots.txt"],
       workbox: {
-    globIgnores: [
-      "vendor/opencv.js",
-      "vendor/opencv_js.wasm",
-    ],
-  },
+            globIgnores: ["vendor/opencv.js", "vendor/opencv_js.wasm"],
+            runtimeCaching: [
+            {
+                urlPattern: /\/vendor\/.*\.(js|wasm)$/i,
+                handler: "NetworkOnly",
+                options: { cacheName: "no-vendor-cache" },
+            },
+            ],
+        },
       manifest: {
         name: "Pintura Sonora",
         short_name: "PinturaSonora",
