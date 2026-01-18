@@ -90,7 +90,6 @@ document.querySelector<HTMLButtonElement>("#btnC")!.addEventListener("click", ()
 
 function drawLoop() {
   const ctx = overlayEl.getContext("2d")!;
-  const rect = videoEl.getBoundingClientRect();
 
   // limpiar
   ctx.clearRect(0, 0, overlayEl.width, overlayEl.height);

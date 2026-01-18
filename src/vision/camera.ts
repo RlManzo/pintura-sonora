@@ -6,11 +6,13 @@ export type CameraStartOptions = {
 
 export class CameraController {
   private stream: MediaStream | null = null;
+  private videoEl: HTMLVideoElement;
+  private overlayEl: HTMLCanvasElement;
 
-  constructor(
-    private videoEl: HTMLVideoElement,
-    private overlayEl: HTMLCanvasElement
-  ) {}
+  constructor(videoEl: HTMLVideoElement, overlayEl: HTMLCanvasElement) {
+    this.videoEl = videoEl;
+    this.overlayEl = overlayEl;
+  }
 
   async start(opts: CameraStartOptions = {}) {
     const constraints: MediaStreamConstraints = {
@@ -22,14 +24,11 @@ export class CameraController {
       },
     };
 
-    // Pedir permisos
     this.stream = await navigator.mediaDevices.getUserMedia(constraints);
     this.videoEl.srcObject = this.stream;
 
-    // iOS/Safari: playsinline + gesture ya hecho en main
     await this.videoEl.play();
 
-    // Asegurar que el overlay siga el tamaño visible
     this.syncOverlayToVideo();
   }
 

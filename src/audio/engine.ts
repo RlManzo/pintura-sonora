@@ -17,9 +17,9 @@ export class AudioEngine {
   private ctx: AudioContext | null = null;
   private master!: GainNode;
   private comp!: DynamicsCompressorNode;
-  private reverb!: Convolver;
+  private reverb!: ConvolverNode;
 
-  private startedAt = 0;
+  
 
   async init() {
     if (this.ctx) return;
@@ -56,7 +56,7 @@ export class AudioEngine {
     // (lo attachamos como propiedad no tipada)
     (this.master as any)._revSend = revSend;
 
-    this.startedAt = this.ctx.currentTime;
+    
 
     // iOS: asegurar running
     if (this.ctx.state !== "running") {
