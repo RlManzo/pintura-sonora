@@ -3,6 +3,13 @@ import { CameraController } from "./vision/camera";
 import { AudioEngine } from "./audio/engine";
 import { OBRA_BOSS } from "./mapping/painting-pack";
 import { findZone } from "./mapping/zones";
+import {
+  computeHomography4,
+  invertHomography,
+  applyHomography,
+  type Pt,
+  type H,
+} from "./vision/homography";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 
@@ -34,6 +41,11 @@ app.innerHTML = `
         <button id="btnStart" class="primary">Tocar para iniciar</button>
 
         <div class="row">
+          <button id="btnCalib">Calibrar (4 puntos)</button>
+          <button id="btnResetCalib">Reset Calib</button>
+        </div>
+
+        <div class="row">
           <button id="btnA">A (Pad)</button>
           <button id="btnB">B (E-Piano)</button>
           <button id="btnC">C (Click)</button>
@@ -46,7 +58,8 @@ app.innerHTML = `
         </div>
 
         <div class="hint">
-          Alineá la obra real con la referencia. El sonido se dispara en el centro (sin tocar pantalla).
+          1) Iniciar  2) Calibrar tocando las 4 esquinas del cuadro (sup-izq, sup-der, inf-der, inf-izq).
+          Luego mové el celu: el sonido se dispara en el centro.
         </div>
       </div>
     </main>
@@ -126,7 +139,73 @@ btnRefToggle.addEventListener("click", () => {
   refImgEl.style.display = refVisible ? "block" : "none";
 });
 
-// Botones de test (aseguran unlock + reproducen)
+// ------------------------
+// Calibración 4 puntos
+// ------------------------
+let calibActive = false;
+let calibPointsVideo: Pt[] = []; // puntos tocados en video (coords normalizadas)
+let H_video_to_paint: H | null = null; // centroVideo -> puntoEnPintura
+
+// Esquinas de la pintura en coords "pintura" (normalizadas)
+const paintCorners: Pt[] = [
+  { x: 0, y: 0 }, // sup-izq
+  { x: 1, y: 0 }, // sup-der
+  { x: 1, y: 1 }, // inf-der
+  { x: 0, y: 1 }, // inf-izq
+];
+
+const btnCalib = document.querySelector<HTMLButtonElement>("#btnCalib")!;
+const btnResetCalib = document.querySelector<HTMLButtonElement>("#btnResetCalib")!;
+
+btnCalib.addEventListener("click", async () => {
+  await unlockAudioIfNeeded();
+  calibActive = true;
+  calibPointsVideo = [];
+  H_video_to_paint = null;
+  setStatus("Calibración: tocá 4 esquinas (sup-izq, sup-der, inf-der, inf-izq)");
+});
+
+btnResetCalib.addEventListener("click", () => {
+  calibActive = false;
+  calibPointsVideo = [];
+  H_video_to_paint = null;
+  setStatus("Calibración reseteada");
+});
+
+// Captura de taps para calibración (sobre overlay)
+overlayEl.addEventListener("pointerdown", (e) => {
+  if (!calibActive) return;
+
+  const rect = overlayEl.getBoundingClientRect();
+  const x = (e.clientX - rect.left) / rect.width;
+  const y = (e.clientY - rect.top) / rect.height;
+
+  calibPointsVideo.push({ x, y });
+
+  if (calibPointsVideo.length === 4) {
+    try {
+      // Queremos video -> pintura, pero computeHomography4 arma src->dst
+      // Armamos primero pintura->video con corners->taps, luego invertimos.
+      const H_paint_to_video = computeHomography4(paintCorners, calibPointsVideo);
+      H_video_to_paint = invertHomography(H_paint_to_video);
+
+      calibActive = false;
+      setStatus("Calibración OK");
+    } catch (err) {
+      console.error(err);
+      calibActive = false;
+      calibPointsVideo = [];
+      H_video_to_paint = null;
+      setStatus("Error calibrando (probá de nuevo)");
+    }
+  } else {
+    setStatus(`Calibrando... punto ${calibPointsVideo.length}/4`);
+  }
+});
+
+// ------------------------
+// Botones de test (audio)
+// ------------------------
 document.querySelector<HTMLButtonElement>("#btnA")!.addEventListener("click", async () => {
   await unlockAudioIfNeeded();
   audio.playPad();
@@ -140,12 +219,14 @@ document.querySelector<HTMLButtonElement>("#btnC")!.addEventListener("click", as
   audio.playClick();
 });
 
-// Start
+// ------------------------
+// Start cámara + loop
+// ------------------------
 const btnStart = document.querySelector<HTMLButtonElement>("#btnStart")!;
 btnStart.addEventListener("click", async () => {
   try {
     setStatus("Iniciando…");
-    await unlockAudioIfNeeded(); // 👈 usar unlock centralizado
+    await unlockAudioIfNeeded();
 
     await camera.start({
       width: 640,
@@ -180,7 +261,7 @@ function drawLoop() {
   ctx.fillText("overlay activo", 12, 18);
   ctx.restore();
 
-  // dibujar zonas (en coords de pantalla)
+  // dibujar zonas (en coords de pantalla SOLO como guía visual; no son “reales”)
   ctx.save();
   ctx.scale(devicePixelRatio, devicePixelRatio);
 
@@ -191,30 +272,52 @@ function drawLoop() {
 
     ctx.beginPath();
     ctx.arc(cx, cy, rr, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(255,255,255,0.18)";
+    ctx.strokeStyle = "rgba(255,255,255,0.12)";
     ctx.lineWidth = 2;
     ctx.stroke();
   }
 
-  // resolvemos zona usando cursor centro
-  const zone = findZone(OBRA_BOSS.zones, cursorX, cursorY);
+  // Dibujar puntos de calibración (si estamos calibrando o si ya tocamos algunos)
+  if (calibPointsVideo.length > 0) {
+    for (let i = 0; i < calibPointsVideo.length; i++) {
+      const p = calibPointsVideo[i];
+      const px = p.x * rect.width;
+      const py = p.y * rect.height;
 
-  // feedback: resaltar zona activa (si hay)
-  if (zone) {
-    const cx = zone.x * rect.width;
-    const cy = zone.y * rect.height;
-    const rr = zone.r * rect.width;
+      ctx.beginPath();
+      ctx.arc(px, py, 8, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.fill();
 
-    ctx.beginPath();
-    ctx.arc(cx, cy, rr, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(255,255,255,0.55)";
-    ctx.lineWidth = 3;
-    ctx.stroke();
+      ctx.font = "12px system-ui";
+      ctx.fillStyle = "rgba(0,0,0,0.75)";
+      ctx.fillText(String(i + 1), px - 3, py + 4);
+    }
   }
 
-  // etiqueta de zona
+  // -----
+  // Centro del video -> (opcional) mapeo a coords de pintura
+  // -----
+  let px = cursorX;
+  let py = cursorY;
+
+  if (H_video_to_paint) {
+    const pPaint = applyHomography(H_video_to_paint, { x: cursorX, y: cursorY });
+    px = pPaint.x;
+    py = pPaint.y;
+  }
+
+  // resolver zona en coords "pintura" (0..1)
+  const zone = findZone(OBRA_BOSS.zones, px, py);
+
+  // etiqueta de zona + coords pintura
   ctx.font = "12px system-ui";
   ctx.fillStyle = "rgba(255,255,255,0.8)";
+  ctx.fillText(
+    H_video_to_paint ? `pintura: ${px.toFixed(2)},${py.toFixed(2)}` : "pintura: (sin calibrar)",
+    12,
+    36
+  );
   ctx.fillText(
     zone ? `zona: ${zone.id} (${zone.role})` : "zona: -",
     12,
@@ -223,8 +326,10 @@ function drawLoop() {
 
   ctx.restore();
 
-  // disparo de audio con cooldown
-  if (zone && zone.id !== lastZoneId) {
+  // disparo de audio con cooldown (solo si calibramos, o si querés permitirlo sin calibrar dejá la condición en true)
+  const canTrigger = true; // ponelo en (H_video_to_paint !== null) si querés obligar calibración
+
+  if (canTrigger && zone && zone.id !== lastZoneId) {
     const nowMs = performance.now();
     if (nowMs - lastTriggerMs > TRIGGER_COOLDOWN_MS) {
       lastTriggerMs = nowMs;
@@ -251,14 +356,12 @@ function drawLoop() {
           break;
 
         case "macro":
-          // por ahora: feedback suave
           audio.playPad();
           break;
       }
     }
   }
 
-  // si no hay zona, permitimos re-disparar al volver a entrar
   if (!zone) lastZoneId = null;
 
   requestAnimationFrame(drawLoop);
