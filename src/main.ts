@@ -7,13 +7,6 @@ import { findZone } from "./mapping/zones";
 import { loadOpenCV } from "./vision/opencv-loader";
 import { AutoLock } from "./vision/autolock";
 
-// ✅ DEBUG: desregistrar SW para evitar caches viejos (temporal)
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.getRegistrations().then((regs) => {
-    regs.forEach((r) => r.unregister());
-  });
-}
-
 const app = document.querySelector<HTMLDivElement>("#app")!;
 
 app.innerHTML = `
@@ -64,7 +57,17 @@ async function unlockAudioIfNeeded() {
   audioUnlocked = true;
 }
 
-// ✅ DEBUG: chequear que opencv.js/wasm estén accesibles desde el iPhone
+function setStatus(s: string) {
+  statusEl.textContent = s;
+}
+
+function resizeOverlayToVideo() {
+  const rect = videoEl.getBoundingClientRect();
+  overlayEl.width = Math.max(1, Math.floor(rect.width * devicePixelRatio));
+  overlayEl.height = Math.max(1, Math.floor(rect.height * devicePixelRatio));
+}
+window.addEventListener("resize", () => resizeOverlayToVideo(), { passive: true });
+
 async function checkVendorFiles() {
   const urls = ["/vendor/opencv.js", "/vendor/opencv_js.wasm"];
   const results: string[] = [];
@@ -79,17 +82,6 @@ async function checkVendorFiles() {
   }
   return results.join(" | ");
 }
-
-function setStatus(s: string) {
-  statusEl.textContent = s;
-}
-
-function resizeOverlayToVideo() {
-  const rect = videoEl.getBoundingClientRect();
-  overlayEl.width = Math.max(1, Math.floor(rect.width * devicePixelRatio));
-  overlayEl.height = Math.max(1, Math.floor(rect.height * devicePixelRatio));
-}
-window.addEventListener("resize", () => resizeOverlayToVideo(), { passive: true });
 
 let cv: any | null = null;
 let autolock: AutoLock | null = null;
@@ -106,9 +98,10 @@ const REPEAT_MS = 650;
 const btnStart = document.querySelector<HTMLButtonElement>("#btnStart")!;
 btnStart.addEventListener("click", async () => {
   try {
-    setStatus("Iniciando…");
+    setStatus("Iniciando audio…");
     await unlockAudioIfNeeded();
 
+    setStatus("Pidiendo permisos de cámara…");
     await camera.start({
       width: 1280,
       height: 720,
@@ -116,27 +109,20 @@ btnStart.addEventListener("click", async () => {
     });
 
     resizeOverlayToVideo();
-
-    // ✅ Mostrar si realmente se ven los assets vendor en el iPhone
     setStatus("Cámara OK · chequeando vendor…");
+
     const chk = await checkVendorFiles();
     setStatus(chk);
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, 900));
 
     setStatus("Cargando OpenCV…");
-    try {
-      cv = await loadOpenCV(15000);
-      setStatus("OpenCV OK");
-    } catch (err) {
-      console.error(err);
-      setStatus(`Error OpenCV: ${(err as any)?.message ?? "desconocido"}`);
-      throw err;
-    }
+    cv = await loadOpenCV(20000);
+    setStatus("OpenCV OK");
 
-    setStatus("OpenCV OK · Preparando referencia…");
+    setStatus("Preparando referencia…");
     autolock = new AutoLock({ cv, referenceUrl: OBRA_BOSS.referenceImage });
-    autolock.setAnalysisSize(320); // performance iPhone
-    autolock.setVisionRate(200); // 5fps visión
+    autolock.setAnalysisSize(320);
+    autolock.setVisionRate(200);
     await autolock.init();
 
     setStatus("Listo · Buscando obra…");
@@ -144,9 +130,19 @@ btnStart.addEventListener("click", async () => {
     btnStart.textContent = "Iniciado";
 
     drawLoop();
-  } catch (e) {
-    console.error(e);
-    setStatus("Error: permisos o carga OpenCV");
+  } catch (e: any) {
+    console.error("FALLO START:", e);
+
+    const msg =
+      e?.name === "NotAllowedError"
+        ? "Permiso de cámara denegado"
+        : e?.name === "NotFoundError"
+        ? "No se encontró cámara"
+        : e?.message
+        ? e.message
+        : String(e);
+
+    setStatus(`Error: ${msg}`);
   }
 });
 
@@ -193,20 +189,18 @@ function drawLoop() {
 
   ctx.clearRect(0, 0, overlayEl.width, overlayEl.height);
 
-  // UI debug
   ctx.save();
   ctx.scale(devicePixelRatio, devicePixelRatio);
   ctx.font = "12px system-ui";
   ctx.fillStyle = "rgba(255,255,255,0.75)";
   ctx.fillText("overlay activo", 12, 18);
 
-  // puntito del centro
+  // centro
   ctx.beginPath();
   ctx.arc(cursorX * rect.width, cursorY * rect.height, 6, 0, Math.PI * 2);
   ctx.fillStyle = "rgba(255,255,255,0.9)";
   ctx.fill();
 
-  // visión
   let lockText = "LOCK: -";
   let zoneText = "zona: -";
 
@@ -218,7 +212,6 @@ function drawLoop() {
       const zone = findZone(OBRA_BOSS.zones, r.paintX, r.paintY);
       zoneText = zone ? `zona: ${zone.id} (${zone.role})` : "zona: -";
 
-      // trigger modo scanner
       if (zone) {
         const now = performance.now();
         const changed = zone.id !== lastZoneId;
